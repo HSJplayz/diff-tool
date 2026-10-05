@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diff Tool</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --ink:#e6edf3; --muted:#8b949e; --accent:#2f81f7;
+          --ins:#3fb950; --del:#f85149; --line:#30363d; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif; padding:24px; }
+  main { width:100%; max-width:1100px; margin:0 auto; }
+  h1 { font-size:1.5rem; margin:0 0 4px; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .panes { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px; }
+  .pane { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .pane h2 { font-size:.95rem; margin:0 0 8px; color:var(--muted); }
+  textarea { width:100%; height:220px; background:var(--bg); color:var(--ink);
+    border:1px solid var(--line); border-radius:8px; padding:8px; font-family:ui-monospace,Consolas,monospace; font-size:.85rem; }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+  select, button { font:inherit; color:var(--ink); background:var(--bg); border:1px solid var(--line);
+    border-radius:8px; padding:7px 10px; }
+  button { cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; font-weight:600; border-color:var(--accent); }
+  .stats { display:flex; gap:16px; margin-top:14px; flex-wrap:wrap; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px 12px; }
+  .stat .n { font-size:1.2rem; font-weight:700; }
+  .add .n { color:var(--ins); } .del .n { color:var(--del); }
+  #out { margin-top:14px; background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:12px; font-family:ui-monospace,Consolas,monospace; font-size:.8rem; white-space:pre; overflow-x:auto; max-height:420px; }
+  .l-add { color:var(--ins); } .l-del { color:var(--del); } .l-hunk { color:var(--accent); } .l-meta { color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Diff Tool</h1>
+  <p class="muted">Paste two texts (or swap sides). LCS-based diff with live unified output.</p>
+
+  <div class="panes">
+    <div class="pane"><h2>Old</h2><textarea id="a" spellcheck="false" placeholder="Original text..."></textarea></div>
+    <div class="pane"><h2>New</h2><textarea id="b" spellcheck="false" placeholder="Modified text..."></textarea></div>
+  </div>
+
+  <div class="toolbar">
+    <label>Mode <select id="mode"><option value="lines">lines</option><option value="words">words</option><option value="chars">chars</option></select></label>
+    <label>Context <input id="context" type="number" min="0" max="20" value="3" style="width:60px"></label>
+    <label><input type="checkbox" id="ic"> ignore case</label>
+    <label><input type="checkbox" id="iw"> ignore whitespace</label>
+    <button id="swap">swap</button>
+    <button id="run" class="primary">Diff</button>
+    <span id="status" class="muted"></span>
+  </div>
+
+  <div class="stats" id="stats"></div>
+  <div id="out"></div>
+</main>
+
+<script src="diff.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+function esc(s){const d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
+
+async function run() {
+  const a = $('a').value, b = $('b').value;
+  $('status').textContent = 'diffing...';
+  try {
+    const res = await fetch('/api/diff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ a, b, mode: $('mode').value, context: Number($('context').value) || 0,
+        ignoreCase: $('ic').checked, ignoreWhitespace: $('iw').checked }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'failed');
+    const s = data.stats;
+    $('stats').innerHTML =
+      `<div class="stat add"><div class="n">+${s.added}</div><div class="muted">added</div></div>` +
+      `<div class="stat del"><div class="n">-${s.removed}</div><div class="muted">removed</div></div>` +
+      `<div class="stat"><div class="n">${s.similar}%</div><div class="muted">similar</div></div>` +
+      `<div class="stat"><div class="n">${data.hunks}</div><div class="muted">hunks</div></div>`;
+    $('out').innerHTML = esc(data.unified)
+      .replace(/^(\+.*)$/gm, '<span class="l-add">$1</span>')
+      .replace(/^(-.*)$/gm, '<span class="l-del">$1</span>')
+      .replace(/^(@@.*)$/gm, '<span class="l-hunk">$1</span>')
+      .replace(/^([+-]{3}.*)$/gm, '<span class="l-meta">$1</span>');
+    $('status').textContent = (s.added === 0 && s.removed === 0) ? 'no differences' : '';
+  } catch (err) {
+    $('status').textContent = 'Error: ' + err.message;
+  }
+}
+
+$('run').addEventListener('click', run);
+$('mode').addEventListener('change', run);
+$('swap').addEventListener('click', () => { const t = $('a').value; $('a').value = $('b').value; $('b').value = t; run(); });
+$('a').addEventListener('input', run);
+$('b').addEventListener('input', run);
+</script>
+</body>
+</html>
